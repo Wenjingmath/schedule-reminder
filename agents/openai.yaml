@@ -1,0 +1,7 @@
+interface:
+  display_name: "日程提醒"
+  short_description: "智能日程提醒，从截图、PDF、网页等多源提取事件"
+  brand_color: "#3B82F6"
+  default_prompt: "使用 schedule-reminder 从提供的文件或链接中提取日程事件并设置提醒。"
+dependencies:
+  tools: []
