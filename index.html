@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schedule Reminder - 智能日程提醒工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #667eea;
+    --primary-dark: #5a67d8;
+    --secondary: #764ba2;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg-gradient);
+    min-height: 100vh;
+    color: #333;
+  }
+  .container { max-width: 1280px; margin: 0 auto; padding: 20px; }
+  header { text-align: center; padding: 40px 20px 20px; color: white; }
+  header h1 { font-size: 2.5rem; margin-bottom: 8px; }
+  header p { font-size: 1.05rem; opacity: 0.9; }
+  .badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; margin-top: 10px; }
+
+  .upload-section {
+    background: white; border-radius: 18px; padding: 28px; margin: 20px 0;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+  }
+  .upload-zone {
+    border: 3px dashed #c7d2fe; border-radius: 14px; padding: 45px 30px;
+    text-align: center; background: #f8f9ff; cursor: pointer; transition: all 0.3s;
+  }
+  .upload-zone:hover, .upload-zone.dragover { border-color: var(--primary); background: #f0f4ff; }
+  .upload-zone .icon { font-size: 3.5rem; margin-bottom: 10px; animation: bounce 2s infinite; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  .upload-zone h3 { color: var(--primary); margin-bottom: 6px; }
+  .upload-zone p { color: #888; font-size: 0.85rem; }
+  .upload-zone input[type="file"] { display: none; }
+
+  .format-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: center; }
+  .format-btn {
+    padding: 7px 14px; border: 2px solid #e5e7eb; border-radius: 20px;
+    background: white; cursor: pointer; font-size: 0.82rem; transition: all 0.25s;
+    display: flex; align-items: center; gap: 5px; color: #666;
+  }
+  .format-btn:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
+  .format-btn.active { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border-color: transparent; }
+
+  .loading { display: none; text-align: center; padding: 25px; }
+  .loading.active { display: block; }
+  .spinner {
+    display: inline-block; width: 44px; height: 44px;
+    border: 4px solid #e0e7ff; border-top: 4px solid var(--primary);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .progress-bar { width: 200px; height: 6px; background: #e0e7ff; border-radius: 3px; margin: 12px auto 0; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--secondary)); border-radius: 3px; transition: width 0.3s; width: 0%; }
+
+  .results-section { display: none; margin: 25px 0; animation: fadeInUp 0.5s ease; }
+  .results-section.active { display: block; }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  .results-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+  .results-header h2 { color: white; font-size: 1.4rem; }
+  .results-subtitle { color: rgba(255,255,255,0.8); font-size: 0.85rem; margin-top: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .event-count-badge { background: rgba(255,255,255,0.2); padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; }
+  .confidence-wrapper { display: flex; align-items: center; gap: 8px; }
+  .confidence-bar { width: 100px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden; }
+  .confidence-fill { height: 100%; background: linear-gradient(90deg, #4ade80, #22c55e); border-radius: 4px; transition: width 0.8s; }
+
+  .result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    padding: 8px 16px; border: none; border-radius: 10px; cursor: pointer;
+    font-size: 0.82rem; font-weight: 500; transition: all 0.25s; display: flex; align-items: center; gap: 6px;
+  }
+  .btn-primary { background: linear-gradient(135deg, #4ade80, #22c55e); color: #004d1a; box-shadow: 0 4px 12px rgba(34,197,94,0.3); }
+  .btn-secondary { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.2); }
+  .btn-warning { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #78350f; box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
+
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .stat-card { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 14px; color: white; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; }
+  .stat-label { font-size: 0.75rem; opacity: 0.8; margin-top: 2px; }
+
+  .view-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.1); padding: 4px; border-radius: 12px; margin-bottom: 18px; }
+  .view-tab { flex: 1; padding: 10px 12px; background: transparent; border: none; color: rgba(255,255,255,0.7); cursor: pointer; border-radius: 8px; font-size: 0.85rem; transition: all 0.25s; }
+  .view-tab.active { background: white; color: var(--primary); font-weight: 600; }
+  .view-panel { display: none; }
+  .view-panel.active { display: block; }
+
+  .event-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+  .event-card {
+    background: white; border-radius: 18px; overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08); transition: all 0.35s cubic-bezier(0.4,0,0.2,1);
+    position: relative;
+  }
+  .event-card:hover { transform: translateY(-6px) scale(1.01); box-shadow: 0 16px 40px rgba(0,0,0,0.15); }
+
+  .card-banner { padding: 16px 20px; color: white; position: relative; overflow: hidden; }
+  .card-banner::after { content: ''; position: absolute; top: -50%; right: -20%; width: 150px; height: 150px; background: rgba(255,255,255,0.1); border-radius: 50%; }
+  .card-banner.meeting { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+  .card-banner.weekly { background: linear-gradient(135deg, #f59e0b, #d97706); }
+  .card-banner.event { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+  .card-banner.default { background: linear-gradient(135deg, var(--primary), var(--secondary)); }
+
+  .card-banner-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .card-type-label { font-size: 0.72rem; padding: 3px 10px; background: rgba(255,255,255,0.2); border-radius: 12px; font-weight: 500; }
+  .card-confidence { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; opacity: 0.9; }
+  .card-confidence .conf-dot { width: 7px; height: 7px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 6px #4ade80; }
+  .card-title { font-size: 1.1rem; font-weight: 700; color: white; line-height: 1.4; margin-bottom: 6px; word-break: break-word; }
+  .card-date-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; opacity: 0.95; }
+
+  .card-body { padding: 16px 20px; }
+  .time-block { display: flex; align-items: center; gap: 12px; background: #f9fafb; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .time-main { text-align: center; min-width: 60px; }
+  .time-main .time-large { font-size: 1.3rem; font-weight: 700; color: #1f2937; line-height: 1; }
+  .time-main .time-small { font-size: 0.65rem; color: #9ca3af; margin-top: 3px; }
+  .time-divider { flex: 1; height: 2px; background: linear-gradient(90deg, #e5e7eb, #d1d5db, #e5e7eb); position: relative; }
+  .time-divider::before, .time-divider::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: white; border: 2px solid #667eea; transform: translateY(-50%); }
+  .time-divider::before { left: -1px; } .time-divider::after { right: -1px; }
+  .time-duration { text-align: center; min-width: 70px; background: white; padding: 4px 8px; border-radius: 8px; border: 1px solid #e5e7eb; }
+  .time-duration .dur-value { font-size: 0.75rem; font-weight: 600; color: var(--primary-dark); }
+  .time-duration .dur-label { font-size: 0.6rem; color: #9ca3af; }
+
+  .countdown-row { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 12px; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 10px; margin-bottom: 12px; }
+  .countdown-row .cd-text { font-size: 0.78rem; font-weight: 600; color: #92400e; }
+  .countdown-row.soon { background: linear-gradient(135deg, #fecaca, #fca5a5); }
+  .countdown-row.soon .cd-text { color: #991b1b; }
+  .countdown-row.past { background: linear-gradient(135deg, #e5e7eb, #d1d5db); }
+  .countdown-row.past .cd-text { color: #4b5563; }
+
+  .info-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+  .info-item { display: flex; align-items: flex-start; gap: 10px; }
+  .info-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+  .info-icon.loc { background: #fef3c7; } .info-icon.summary { background: #dbeafe; } .info-icon.source { background: #f3e8ff; }
+  .info-content { flex: 1; min-width: 0; }
+  .info-label { font-size: 0.68rem; color: #9ca3af; margin-bottom: 2px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .info-value { font-size: 0.85rem; color: #374151; line-height: 1.45; word-break: break-word; }
+
+  .reminder-section { border-top: 1px solid #f0f0f0; padding-top: 14px; }
+  .reminder-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .reminder-title { font-size: 0.78rem; color: #6b7280; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .reminder-count { font-size: 0.68rem; padding: 2px 7px; background: #eef2ff; color: var(--primary-dark); border-radius: 10px; font-weight: 600; }
+  .reminder-items { display: flex; flex-direction: column; gap: 7px; }
+  .reminder-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; font-size: 0.78rem; transition: all 0.2s; }
+  .reminder-item:hover { transform: translateX(2px); }
+  .reminder-item.day-before { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-left: 3px solid #3b82f6; }
+  .reminder-item.same-day { background: linear-gradient(135deg, #fef3c7, #fde68a); border-left: 3px solid #f59e0b; }
+  .rem-icon { font-size: 1rem; width: 24px; text-align: center; }
+  .rem-content { flex: 1; min-width: 0; }
+  .rem-msg { color: #1f2937; font-weight: 500; margin-bottom: 2px; font-size: 0.8rem; }
+  .rem-time { color: #6b7280; font-size: 0.7rem; }
+  .rem-type-badge { font-size: 0.62rem; padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 4px; }
+  .rem-type-badge.day-badge { background: #3b82f6; color: white; }
+  .rem-type-badge.same-badge { background: #f59e0b; color: white; }
+
+  .json-panel { background: #1e1e2e; border-radius: 16px; overflow: hidden; }
+  .json-panel-header { background: #313244; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; }
+  .json-panel-header span { color: #a6adc8; font-size: 0.85rem; }
+  .json-panel pre { padding: 18px; color: #cdd6f4; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.8rem; overflow-x: auto; max-height: 450px; line-height: 1.6; }
+  .json-key { color: #89b4fa; } .json-string { color: #a6e3a1; } .json-number { color: #fab387; } .json-boolean { color: #cba6f7; }
+
+  footer { text-align: center; color: rgba(255,255,255,0.6); padding: 25px; font-size: 0.78rem; }
+  .toast { position: fixed; bottom: 30px; right: 30px; background: #1f2937; color: white; padding: 12px 20px; border-radius: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); opacity: 0; transform: translateY(20px); transition: all 0.3s; z-index: 1000; font-size: 0.85rem; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📅 Schedule Reminder</h1>
+    <p>智能日程提取与提醒工具 · 多源输入 · 可视化展示 · 截止时间管理</p>
+    <span class="badge">✨ v0.3.0 含截止时间功能</span>
+  </header>
+
+  <div class="upload-section">
+    <div class="upload-zone" id="uploadZone">
+      <div class="icon">📁</div>
+      <h3>拖拽文件到这里，或点击选择文件</h3>
+      <p>支持图片（PNG/JPG）、PDF、TXT、MD 等格式</p>
+      <input type="file" id="fileInput" accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp">
+    </div>
+    <div class="format-buttons">
+      <button class="format-btn active" data-format="auto"><span>🔍</span> 自动识别</button>
+      <button class="format-btn" data-format="text"><span>📝</span> 文本/Markdown</button>
+      <button class="format-btn" data-format="pdf"><span>📄</span> PDF文档</button>
+      <button class="format-btn" data-format="image"><span>🖼️</span> 图片/OCR</button>
+    </div>
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p id="loadingText">正在处理...</p>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+  </div>
+
+  <div class="results-section" id="resultsSection">
+    <div class="results-header">
+      <div>
+        <h2>✨ 提取结果</h2>
+        <div class="results-subtitle">
+          <span class="event-count-badge" id="eventCountBadge">0 个事件</span>
+          <span class="confidence-wrapper">置信度
+            <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width:0%"></div></div>
+            <span id="confidenceText">0%</span>
+          </span>
+        </div>
+      </div>
+      <div class="result-actions">
+        <button class="btn btn-secondary" onclick="copyJSON()">📋 复制JSON</button>
+        <button class="btn btn-warning" onclick="downloadICS()">📅 导出ICS</button>
+        <button class="btn btn-primary" onclick="downloadJSON()">💾 下载JSON</button>
+      </div>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-card"><div class="stat-value" id="statTotal">0</div><div class="stat-label">总事件数</div></div>
+      <div class="stat-card"><div class="stat-value" id="statToday">0</div><div class="stat-label">今日事件</div></div>
+      <div class="stat-card"><div class="stat-value" id="statReminders">0</div><div class="stat-label">提醒总数</div></div>
+      <div class="stat-card"><div class="stat-value" id="statDeadlines">0</div><div class="stat-label">截止时间</div></div>
+    </div>
+
+    <div class="view-tabs">
+      <button class="view-tab active" onclick="switchView('cards', this)">🎴 卡片视图</button>
+      <button class="view-tab" onclick="switchView('json', this)">{ } JSON</button>
+    </div>
+
+    <div class="view-panel active" id="viewCards">
+      <div class="event-cards" id="eventCards"></div>
+    </div>
+    <div class="view-panel" id="viewJson">
+      <div class="json-panel">
+        <div class="json-panel-header"><span>📊 JSON 结构化输出</span><span id="sourceType">source: -</span></div>
+        <pre id="jsonOutput"></pre>
+      </div>
+    </div>
+  </div>
+
+  <footer><p>Schedule Reminder Skill · MIT License · <a href="https://github.com/Wenjingmath/schedule-reminder" target="_blank" style="color:rgba(255,255,255,0.85);">GitHub</a></p></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="deadline_save.js"></script>
+<script src="deadline_ui.js"></script>
+<script src="expiry_reminder.js"></script>
+<script>
+let currentResult = null;
+let currentFormat = 'auto';
+
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const formatBtns = document.querySelectorAll('.format-btn');
+
+formatBtns.forEach(btn => btn.addEventListener('click', () => {
+  formatBtns.forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFormat = btn.dataset.format;
+}));
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length > 0) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  let format = currentFormat === 'auto' ? (['txt','md'].includes(ext) ? 'text' : ext === 'pdf' ? 'pdf' : ['png','jpg','jpeg','webp'].includes(ext) ? 'image' : 'text') : currentFormat;
+  showLoading('正在读取文件...', 10);
+  if (format === 'text') readTextFile(file);
+  else if (format === 'pdf') readPDFFile(file);
+  else if (format === 'image') readImageFile(file);
+}
+
+function readTextFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    showLoading('正在提取日程信息...', 60);
+    setTimeout(() => { displayResult(extractEvents(e.target.result, 'text')); hideLoading(); }, 400);
+  };
+  reader.readAsText(file);
+}
+
+function readPDFFile(file) {
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      showLoading('正在解析PDF...', 20);
+      const pdf = await pdfjsLib.getDocument(new Uint8Array(e.target.result)).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        showLoading(`正在解析PDF (${i}/${pdf.numPages})...`, Math.round(20 + (i / pdf.numPages) * 50));
+        const content = await (await pdf.getPage(i)).getTextContent();
+        fullText += content.items.map(item => item.str).join('\n') + '\n';
+      }
+      showLoading('正在提取日程信息...', 80);
+      setTimeout(() => { displayResult(extractEvents(fullText, 'pdf')); hideLoading(); }, 300);
+    } catch (err) { hideLoading(); showToast('❌ PDF解析失败: ' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function readImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      showLoading('正在识别文字...', 30);
+      const result = await Tesseract.recognize(e.target.result, 'chi_sim+eng', {
+        logger: m => { if (m.status === 'recognizing text') showLoading(`正在识别文字... ${Math.round(m.progress * 100)}%`, Math.round(30 + m.progress * 50)); }
+      });
+      showLoading('正在提取日程信息...', 85);
+      setTimeout(() => { const r = extractEvents(result.data.text, 'image'); r.raw_ocr = result.data.text; displayResult(r); hideLoading(); }, 300);
+    } catch (err) { hideLoading(); showToast('❌ OCR识别失败: ' + err.message); }
+  };
+  reader.readAsDataURL(file);
+}
+
+function extractEvents(text, sourceType) {
+  const events = [];
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const cy = new Date().getFullYear();
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function parseDate(s) {
+    let m = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/); if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+    m = s.match(/(\d{1,2})月(\d{1,2})日/); if (m) return `${cy}-${pad(m[1])}-${pad(m[2])}`;
+    m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+    return null;
+  }
+  function parseTime(s) {
+    let isPM = /下午|pm/i.test(s), isAM = /上午|am/i.test(s); s = s.replace(/[上下]午|am|pm/gi, '').trim();
+    let m = s.match(/(\d{1,2}):(\d{2})/); if (m) { let h=+m[1],min=+m[2]; if(isPM&&h<12)h+=12; if(isAM&&h===12)h=0; return `${pad(h)}:${pad(min)}:00`; } return null;
+  }
+
+  let title=null, date=null, st=null, et=null, loc=null, summary='';
+  for (const line of lines) {
+    let tm = line.match(/^(?:主题|标题|会议主题|名称|Title)[:：]\s*(.+)/); if (tm) { title = tm[1].trim(); continue; }
+    let dm = line.match(/^(?:时间|日期|Date|Time)[:：]\s*(.+)/); if (dm) { const c=dm[1]; const d=parseDate(c); if(d)date=d;
+      const ts=c.match(/(\d{1,2}:\d{2}(?:\s*[上下]午)?)/g); if(ts&&ts.length>=1){st=parseTime(ts[0]); if(ts.length>=2)et=parseTime(ts[1]);} continue; }
+    let lm = line.match(/^(?:地点|位置|地址|会议室|Location|Venue)[:：]\s*(.+)/); if (lm) { loc = lm[1].trim(); continue; }
+  }
+  if (title && date && st) events.push(buildEvent(title, date, st, et, loc, summary, 'meeting'));
+
+  if (events.length === 0) {
+    for (let i = 0; i < lines.length; i++) {
+      const d = parseDate(lines[i]); if (d) {
+        let ts = lines[i].match(/(\d{1,2}:\d{2}(?:\s*[上下]午)?)/g);
+        if (!ts && i+1 < lines.length) ts = lines[i+1].match(/(\d{1,2}:\d{2}(?:\s*[上下]午)?)/g);
+        if (ts && ts.length >= 1) events.push(buildEvent(lines[i-1]||'未命名事件', d, parseTime(ts[0]), ts.length>=2?parseTime(ts[1]):null, '', ''));
+      }
+    }
+  }
+
+  events.sort((a,b) => (a.start_time||'').localeCompare(b.start_time||''));
+  let conf = events.length > 0 ? 0.8 : 0.5;
+  return { events, source_type: sourceType, confidence: conf, total_events: events.length, extracted_at: new Date().toISOString() };
+}
+
+function buildEvent(title, date, st, et, loc, summary, type) {
+  const sdt = date && st ? `${date}T${st}` : '';
+  const edt = date && et ? `${date}T${et}` : '';
+  const reminders = [];
+  if (sdt) {
+    const db = new Date(sdt); db.setDate(db.getDate()-1); db.setHours(9,0,0,0);
+    reminders.push({ type: 'day_before', time: db.toISOString().replace('Z','').split('.')[0], message: `明天${st.substring(0,5)} ${title}${loc?' @ '+loc:''}` });
+    const sd = new Date(sdt); sd.setHours(sd.getHours()-1);
+    reminders.push({ type: 'same_day', time: sd.toISOString().replace('Z','').split('.')[0], message: `1小时后：${title}${loc?' @ '+loc:''}` });
+  }
+  return { title: title||'未命名事件', start_time: sdt, end_time: edt||'', location: loc||'', summary: summary||'', type: type||'event', reminders };
+}
+
+function displayResult(result) {
+  currentResult = result;
+  document.getElementById('resultsSection').classList.add('active');
+  document.getElementById('eventCountBadge').textContent = result.events.length + ' 个事件';
+  document.getElementById('confidenceFill').style.width = (result.confidence * 100) + '%';
+  document.getElementById('confidenceText').textContent = Math.round(result.confidence * 100) + '%';
+  document.getElementById('sourceType').textContent = 'source: ' + result.source_type;
+  document.getElementById('statTotal').textContent = result.events.length;
+  document.getElementById('statReminders').textContent = result.events.reduce((s,e)=>s+(e.reminders?.length||0),0);
+  document.getElementById('statDeadlines').textContent = DeadlineSave.getStats().total;
+
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('statToday').textContent = result.events.filter(e => e.start_time && e.start_time.startsWith(today)).length;
+
+  renderCards();
+  document.getElementById('jsonOutput').innerHTML = syntaxHighlight(JSON.stringify(result, null, 2));
+
+  DeadlineUI.bindCardButtons();
+  ExpiryReminder.start(60000);
+}
+
+function renderCards() {
+  if (!currentResult) return;
+  const eventCards = document.getElementById('eventCards');
+  eventCards.innerHTML = currentResult.events.map((event, i) => {
+    const typeLabel = event.type === 'meeting' ? '会议' : (event.type === 'weekly' ? '每周课程' : '事件');
+    const typeClass = event.type || 'default';
+    const st = event.start_time ? event.start_time.split('T')[1].substring(0,5) : '--:--';
+    const et = event.end_time ? event.end_time.split('T')[1].substring(0,5) : '';
+    const dateStr = event.start_time ? event.start_time.split('T')[0] : '';
+    const d = dateStr ? new Date(dateStr) : null;
+    const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+    const dateDisp = d ? `${d.getMonth()+1}月${d.getDate()}日 ${weekdays[d.getDay()]}` : '日期待定';
+
+    let dur = '';
+    if (event.start_time && event.end_time) {
+      const diff = (new Date(event.end_time) - new Date(event.start_time)) / 60000;
+      const h = Math.floor(diff/60), m = diff%60;
+      dur = h>0&&m>0 ? `${h}小时${m}分钟` : h>0 ? `${h}小时` : `${m}分钟`;
+    }
+
+    let cd = '';
+    if (event.start_time) {
+      const diffMs = new Date(event.start_time) - new Date();
+      if (diffMs < 0) cd = `<div class="countdown-row past"><span>✅</span><span class="cd-text">已结束</span></div>`;
+      else if (diffMs <= 86400000) { const h=Math.floor(diffMs/3600000),m=Math.floor((diffMs%3600000)/60000); cd = `<div class="countdown-row soon"><span>⚡</span><span class="cd-text">距离开始还有 ${h}小时${m}分钟</span></div>`; }
+      else cd = `<div class="countdown-row"><span>⏳</span><span class="cd-text">距离开始还有 ${Math.floor(diffMs/86400000)} 天</span></div>`;
+    }
+
+    const deadlineBlock = DeadlineUI.renderDeadlineBlock(i);
+    const sourceLabels = { text:'文本解析', pdf:'PDF提取', image:'图片OCR', web:'网页抓取' };
+    const sourceLabel = sourceLabels[currentResult.source_type] || currentResult.source_type;
+
+    return `
+    <div class="event-card" style="animation-delay: ${i*0.08}s">
+      <div class="card-banner ${typeClass}">
+        <div class="card-banner-top">
+          <span class="card-type-label">${typeLabel}</span>
+          <div class="card-confidence"><span class="conf-dot"></span>置信度 ${Math.round(currentResult.confidence*100)}%</div>
+        </div>
+        <div class="card-title">${escapeHtml(event.title)}</div>
+        <div class="card-date-row"><span>📅</span> ${dateDisp}</div>
+      </div>
+      <div class="card-body">
+        <div class="time-block">
+          <div class="time-main"><div class="time-large">${st}</div><div class="time-small">开始</div></div>
+          <div class="time-divider"></div>
+          <div class="time-main"><div class="time-large">${et||'--:--'}</div><div class="time-small">结束</div></div>
+          ${dur ? `<div class="time-duration"><div class="dur-value">${dur}</div><div class="dur-label">时长</div></div>` : ''}
+        </div>
+        ${cd}
+        <div class="info-grid">
+          ${event.location ? `<div class="info-item"><div class="info-icon loc">📍</div><div class="info-content"><div class="info-label">地点</div><div class="info-value">${escapeHtml(event.location)}</div></div></div>` : ''}
+          ${event.summary ? `<div class="info-item"><div class="info-icon summary">📝</div><div class="info-content"><div class="info-label">摘要</div><div class="info-value">${escapeHtml(event.summary)}</div></div></div>` : ''}
+          <div class="info-item"><div class="info-icon source">🔍</div><div class="info-content"><div class="info-label">数据来源</div><div class="info-value">${sourceLabel} · 提取于 ${new Date(currentResult.extracted_at).toLocaleString('zh-CN')}</div></div></div>
+        </div>
+        <div class="reminder-section">
+          <div class="reminder-header"><div class="reminder-title">🔔 提醒设置</div><span class="reminder-count">${event.reminders?.length||0} 个</span></div>
+          <div class="reminder-items">
+            ${event.reminders.map(r => `<div class="reminder-item ${r.type.replace('_','-')}"><span class="rem-icon">${r.type==='day_before'?'📅':'⏰'}</span><div class="rem-content"><div class="rem-msg">${escapeHtml(r.message)}<span class="rem-type-badge ${r.type==='day_before'?'day-badge':'same-badge'}">${r.type==='day_before'?'提前一天':'当天提醒'}</span></div><div class="rem-time">🕐 ${formatDateTime(r.time)}</div></div></div>`).join('')}
+          </div>
+        </div>
+        ${deadlineBlock}
+      </div>
+    </div>`;
+  }).join('');
+  DeadlineUI.bindCardButtons();
+}
+
+function switchView(view, btn) {
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('view' + view.charAt(0).toUpperCase() + view.slice(1)).classList.add('active');
+}
+
+function formatDateTime(dt) { if (!dt) return '-'; const p = dt.split('T'); return p[0] + ' ' + (p[1]||'').substring(0,5); }
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function syntaxHighlight(json) {
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+    let c = 'json-number'; if (/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string'; else if (/true|false/.test(m)) c = 'json-boolean'; return `<span class="${c}">${m}</span>`;
+  });
+}
+
+function copyJSON() { if (currentResult) { navigator.clipboard.writeText(JSON.stringify(currentResult, null, 2)).then(() => showToast('✅ JSON 已复制')); } }
+function downloadJSON() { if (!currentResult) return; const b = new Blob([JSON.stringify(currentResult, null, 2)], {type:'application/json'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='schedule_events.json'; a.click(); URL.revokeObjectURL(u); showToast('💾 JSON 已下载'); }
+function downloadICS() {
+  if (!currentResult || !currentResult.events.length) { showToast('⚠️ 没有可导出的事件'); return; }
+  let ics = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Schedule Reminder//CN\n';
+  currentResult.events.forEach((e, i) => {
+    ics += 'BEGIN:VEVENT\n' + `UID:event-${i}-${Date.now()}@sr\n`;
+    if (e.start_time) ics += `DTSTART:${e.start_time.replace(/[-:]/g,'')}\n`;
+    if (e.end_time) ics += `DTEND:${e.end_time.replace(/[-:]/g,'')}\n`;
+    ics += `SUMMARY:${e.title}\n` + (e.location ? `LOCATION:${e.location}\n` : '') + 'END:VEVENT\n';
+  });
+  ics += 'END:VCALENDAR';
+  const b = new Blob([ics], {type:'text/calendar'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='schedule.ics'; a.click(); URL.revokeObjectURL(u); showToast('📅 ICS 已下载');
+}
+
+function showLoading(text, progress) { document.getElementById('loadingText').textContent = text; document.getElementById('progressFill').style.width = progress + '%'; document.getElementById('loading').classList.add('active'); }
+function hideLoading() { document.getElementById('progressFill').style.width = '100%'; setTimeout(() => document.getElementById('loading').classList.remove('active'), 300); }
+function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2500); }
+</script>
+</body>
+</html>
